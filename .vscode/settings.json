@@ -1,3 +1,8 @@
 {
-    "cmake.sourceDirectory": "/Users/acproject/workspace/cpp_projects/llama.cpp-agent/third_party/llama.cpp"
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+    "clangd.arguments": [
+        "--compile-commands-dir=build"
+    ]
 }

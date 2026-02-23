@@ -16,7 +16,7 @@ using json = nlohmann::ordered_json;
 
 // Tool execution context passed to each tool
 struct tool_context {
-  std::string working_dir;
+  std::string working_directory;
   std::atomic<bool> *is_interrupted = nullptr;
   int timeout_ms = 120000;
 
