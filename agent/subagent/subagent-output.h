@@ -16,6 +16,12 @@ struct output_segment {
   std::string content;
 };
 
+enum display_type_extended  {
+
+  DISPLAY_TYPE_SUBAGENT =7 
+
+};
+
 // Buffered output for a single subagent task
 // Callects output segments and flushes them atomically to console
 class subagent_output_buffer {
@@ -24,6 +30,7 @@ public:
 
   // Buffer text with a display type
   void write(display_type type, const char *fmt, ...);
+  void write(display_type_extended type, const char *fmt, ...);
 
   // Buffer text without changing display type (uses DISPLAY_TYPE_RESET)
   void write(const char *fmt, ...);
@@ -93,6 +100,7 @@ public:
 
   // Change display type (mutex already held)
   void set_display(display_type type);
+  void set_display(display_type_extended type);
   // Flush output (mutex already held)
   void flush();
 };
