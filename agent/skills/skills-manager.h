@@ -25,7 +25,7 @@ struct skill_metadata {
 
 // Manages skill discovery and prompt generation
 // Implements agentskills.io specification
-class skill_manager {
+class skills_manager {
 public:
   // Discover skills from a list of search paths
   // Each path should be a directory containing skill subdirectories

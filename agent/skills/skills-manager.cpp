@@ -42,7 +42,7 @@ parse_yaml_line(const std::string &line) {
   return {key, value};
 }
 
-bool skill_manager::validate_name(const std::string &name) {
+bool skills_manager::validate_name(const std::string &name) {
   if (name.empty() || name.size() > 64) {
     return false;
   }
@@ -77,7 +77,7 @@ bool skill_manager::validate_name(const std::string &name) {
   return true;
 }
 
-std::string skill_manager::escape_xml(const std::string &str) {
+std::string skills_manager::escape_xml(const std::string &str) {
   std::string result;
   result.reserve(str.size());
   for (char c : str) {
@@ -94,7 +94,7 @@ std::string skill_manager::escape_xml(const std::string &str) {
 }
 
 std::optional<skill_metadata>
-skill_manager::parse_frontmatter(const std::string &content,
+skills_manager::parse_frontmatter(const std::string &content,
                                  const std::string &path) {
   // Find frontmatter delimiters (---)
   if (content.substr(0, 3) != "---") {
@@ -186,7 +186,7 @@ skill_manager::parse_frontmatter(const std::string &content,
 }
 
 std::optional<skill_metadata>
-skill_manager::parse_skill(const std::string &skill_dir) {
+skills_manager::parse_skill(const std::string &skill_dir) {
   fs::path skill_path =  fs::path(skill_dir) / "SKILL.md";
   if (!fs::exists(skill_path) || !fs::is_regular_file(skill_path)) {
     return std::nullopt;
@@ -237,7 +237,7 @@ skill_manager::parse_skill(const std::string &skill_dir) {
   return skill;
 }
 
-int skill_manager::discover(const std::vector<std::string> &search_paths) {
+int skills_manager::discover(const std::vector<std::string> &search_paths) {
   skills_.clear();
   int count = 0;
   for (const auto &search_path : search_paths) {
@@ -287,7 +287,7 @@ int skill_manager::discover(const std::vector<std::string> &search_paths) {
   return count;
 }
 
-std::string skill_manager::generate_prompt_section() const {
+std::string skills_manager::generate_prompt_section() const {
   if (skills_.empty()) {
     return "";
   }

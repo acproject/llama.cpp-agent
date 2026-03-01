@@ -222,7 +222,7 @@ When project instructions conflict with general guidelines, prefer project-speci
   }
 
   // Append skills section if available (agentskills.io spec)
-  if (!config.skills_prompt_section.empty()) {
+  if (!config.skill_prompt_section.empty()) {
     system_prompt += R"(
 
 # Available Skills
@@ -242,7 +242,7 @@ Some skills include executable scripts in their `<scripts>` section. To run a sk
 If a skill has `<allowed_tools>`, it declares which tools it needs. This helps you understand the skill's scope.
 
 )";
-    system_prompt += config.skills_prompt_section;
+    system_prompt += config.skill_prompt_section;
   }
 
   messages_.push_back({{"role", "system"}, {"content", system_prompt}});
@@ -258,7 +258,7 @@ agent_loop::agent_loop(server_context &server_ctx, const common_params &params,
                        int subagent_depth, tool_call_callback on_tool_call)
     : server_ctx_(server_ctx), params_(&params), config_(config),
       is_interrupted_(is_interrupted), messages_(json::array()),
-      allowed_tools_(allowed_tools), bash_patterns_(bash_patterns),
+      allowed_tools_(allowed_tools), bash_patterns_(bash_patterns.begin(), bash_patterns.end()),
       on_tool_call_(on_tool_call), is_subagent_(true) {
   // Initialize task defaults from params
   task_defaults_.sampling = params.sampling;
@@ -879,7 +879,7 @@ agent_loop_result agent_loop::run_streaming(
 
       // Use async permission handling if async_perms is provided
       tool_result tool_res =
-          async_perms ? execute_tool_call_async(call, on_event, *async_perms,
+          async_perms ? execute_tool_call_async(call, on_event, async_perms,
                                                 should_stop)
                       : execute_tool_call(call);
 
@@ -1008,7 +1008,7 @@ agent_loop::generate_completion_streaming(result_timings &out_timings,
 // Uses async permission manager and emits events instead of blocking on console
 tool_result agent_loop::execute_tool_call_async(
     const common_chat_tool_call &call, agent_event_callback on_event,
-    permission_manager_async &async_perms, std::function<bool()> should_stop) {
+    permission_manager_async *async_perms, std::function<bool()> should_stop) {
 
   auto &registry = tool_registry::instance();
 
@@ -1052,7 +1052,7 @@ tool_result agent_loop::execute_tool_call_async(
       if (path.is_relative()) {
         path = std::filesystem::path(tool_ctx_.working_dir) / path;
       }
-      if (async_perms.is_external_path(path.string())) {
+      if (async_perms && async_perms->is_external_path(path.string())) {
         permission_request ext_req;
         ext_req.type = permission_type::EXTERNAL_DIR;
         ext_req.tool_name = call.name;
@@ -1061,13 +1061,13 @@ tool_result agent_loop::execute_tool_call_async(
         ext_req.description = "Operation outside working directory";
 
         // Request permission asynchronously
-        std::string req_id = async_perms.request_permission(ext_req);
+        std::string req_id = async_perms->request_permission(ext_req);
         on_event(agent_event::permission_required(req_id, call.name,
                                                   ext_req.details, true));
 
         // Wait for response
         auto response =
-            async_perms.wait_for_response(req_id, 300000); // 5 min timeout
+            async_perms->wait_for_response(req_id, 300000); // 5 min timeout
         if (!response || !response->allowed) {
           on_event(agent_event::permission_resolved(req_id, false));
           return {false, "", "Blocked: File is outside working directory"};
@@ -1092,14 +1092,14 @@ tool_result agent_loop::execute_tool_call_async(
   // Check doom loop
   std::hash<std::string> hasher;
   std::string args_hash = std::to_string(hasher(call.arguments));
-  if (async_perms.is_doom_loop(call.name, args_hash)) {
+  if (async_perms && async_perms->is_doom_loop(call.name, args_hash)) {
     req.description = "Detected repeated identical tool calls (doom loop)";
 
-    std::string req_id = async_perms.request_permission(req);
+    std::string req_id = async_perms->request_permission(req);
     on_event(
         agent_event::permission_required(req_id, call.name, req.details, true));
 
-    auto response = async_perms.wait_for_response(req_id, 300000);
+    auto response = async_perms->wait_for_response(req_id, 300000);
     if (!response || !response->allowed) {
       on_event(agent_event::permission_resolved(req_id, false));
       return {false, "", "Blocked: Detected repeated identical tool calls"};
@@ -1108,7 +1108,8 @@ tool_result agent_loop::execute_tool_call_async(
   }
 
   // Check permission
-  permission_state state = async_perms.check_permission(req);
+  permission_state state = async_perms ? async_perms->check_permission(req)
+                                       : permission_state::ASK;
   if (state == permission_state::DENY ||
       state == permission_state::DENY_SESSION) {
     return {false, "", "Permission denied for " + call.name};
@@ -1116,16 +1117,16 @@ tool_result agent_loop::execute_tool_call_async(
 
   if (state == permission_state::ASK) {
     // Request permission asynchronously
-    std::string req_id = async_perms.request_permission(req);
+    std::string req_id = async_perms->request_permission(req);
     on_event(agent_event::permission_required(req_id, call.name, req.details,
                                               req.is_dangerous));
 
     // Wait for response (with timeout)
     auto response =
-        async_perms.wait_for_response(req_id, 300000); // 5 min timeout
+        async_perms->wait_for_response(req_id, 300000); // 5 min timeout
 
     if (should_stop()) {
-      async_perms.cancel(req_id);
+      async_perms->cancel(req_id);
       return {false, "", "Operation cancelled"};
     }
 
@@ -1142,7 +1143,7 @@ tool_result agent_loop::execute_tool_call_async(
   }
 
   // Record this call
-  async_perms.record_tool_call(call.name, args_hash);
+  async_perms->record_tool_call(call.name, args_hash);
 
   // Execute the tool
   tool_result result = bash_patterns_.empty()

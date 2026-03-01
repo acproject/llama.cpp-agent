@@ -16,12 +16,12 @@ using json = nlohmann::ordered_json;
 
 // Tool execution context passed to each tool
 struct tool_context {
-  std::string working_directory;
+  std::string working_dir;
   std::atomic<bool> *is_interrupted = nullptr;
   int timeout_ms = 120000;
 
   // Subagent support: pointers to parent agent's context
-  void *sever_ctx_ptr = nullptr; // Pointer to server_context
+  void *server_ctx_ptr = nullptr; // Pointer to server_context
   void *agent_config_ptr = nullptr; // Pointer to agent_config
   void *common_params_ptr = nullptr; // Pointer to common_params
   void *session_stats_ptr = nullptr; // Pointer to session_stats

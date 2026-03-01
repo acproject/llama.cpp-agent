@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.h"
+#include "nlohmann/json_fwd.hpp"
 #include "tool-registry.h"
 #include "permission.h"
 #include "permission-async.h"
@@ -19,7 +20,7 @@
 #include <sys/proc.h>
 #include <vector>
 
-using json = nlohmann::json;
+using json = nlohmann::ordered_json;
 
 // Callback for reporting tool calls (used by subagent to report to parent
 // display)
@@ -39,7 +40,7 @@ enum class agent_stop_reason {
 struct agent_config {
   int max_iterations = 50;
   int tool_timeout_ms = 120000; // 2 minutes
-  std::string working_dire;
+  std::string working_dir;
   bool verbose = false;
   bool yolo_mode = false; // Skip all permission prompts
 
@@ -164,11 +165,11 @@ class agent_loop {
 public:
   // Standard constructor for main agent
   agent_loop(server_context &server_ctx, const common_params &params,
-             const agent_config &config, std::atomic<bool> *is_interrupted);
+             const agent_config &config, std::atomic<bool> &is_interrupted);
 
   // Constructor for subagent with filtered tools and custom system prompt
   agent_loop(server_context &server_ctx, const common_params &params,
-             const agent_config &config, std::atomic<bool> *is_interrupted,
+             const agent_config &config, std::atomic<bool> &is_interrupted,
              const std::set<std::string> &allowed_tools,
              const std::vector<std::string> &bash_patterns,
              const std::string &custom_system_prompt, int subagent_depth,
@@ -241,7 +242,7 @@ private:
 
   // Subagent support
   std::set<std::string> allowed_tools_; // Empty = all tools allowed
-  std::vector<std::string>
+  std::set<std::string>
       bash_patterns_; // Allowed bash command prefixes(for read-only subagents)
   tool_call_callback on_tool_call_; // Optional callback for tool reporting
   bool is_subagent_ = false;        // True if this is a subagent
