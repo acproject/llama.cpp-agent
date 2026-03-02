@@ -167,7 +167,7 @@ subagent_result subagent_runner::run_internal(const subagent_params &params,
   subagent_config.verbose = false; // Suppress verbose output in subagent
   subagent_config.enable_skills = false; // No skills for subagents
   subagent_config.enable_agents_md = false; // No agents.md for subagents
-  subagent_config.skill_prompt_section = "";
+  subagent_config.skills_prompt_section = "";
   subagent_config.agents_md_prompt_section = "";
 
   // Use parent's interrupted flag so Ctrl+C stops subagents too

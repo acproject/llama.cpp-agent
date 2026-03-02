@@ -122,8 +122,8 @@ void agent_session::send_message(const std::string &content,
 
     // Skills configuation
     agent_cfg.enable_skills = config_.enable_skills;
-    agent_cfg.skill_search_paths = config_.extra_skills_paths;
-    agent_cfg.skill_prompt_section = skills_prompt_section_;
+    agent_cfg.skills_search_paths = config_.extra_skills_paths;
+    agent_cfg.skills_prompt_section = skills_prompt_section_;
 
     // AGENTS.md configuration
     agent_cfg.enable_agents_md = config_.enable_agents_md;

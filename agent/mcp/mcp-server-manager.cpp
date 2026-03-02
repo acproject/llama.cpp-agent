@@ -14,6 +14,8 @@
 
 namespace fs = std::filesystem;
 
+mcp_server_manager::mcp_server_manager() = default;
+
 mcp_server_manager::~mcp_server_manager() { shutdown_all(); }
 
 bool mcp_server_manager::load_config(const std::string &config_path) {
@@ -175,8 +177,8 @@ std::string mcp_server_manager::qualify_name(const std::string &server,
   std::string safe_tool = tool;
 
   // Simple replacement (not using regex for performance)
-  size_t pos;
-  while ((pos == safe_server.find("__")) != std::string::npos) {
+  size_t pos = 0;
+  while ((pos = safe_server.find("__")) != std::string::npos) {
     safe_server.replace(pos, 2, "_");
   }
   while ((pos = safe_tool.find("__")) != std::string::npos) {

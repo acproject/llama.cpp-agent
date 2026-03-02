@@ -192,8 +192,8 @@ skills_manager::parse_skill(const std::string &skill_dir) {
     return std::nullopt;
   }
 
-  // Read file content
-  std::ifstream file(skill_path);
+  // Read file content (UTF-8 encoding per spec)
+  std::ifstream file(skill_path, std::ios::binary);
   if (!file) {
     return std::nullopt;
   }

@@ -222,7 +222,7 @@ When project instructions conflict with general guidelines, prefer project-speci
   }
 
   // Append skills section if available (agentskills.io spec)
-  if (!config.skill_prompt_section.empty()) {
+  if (!config.skills_prompt_section.empty()) {
     system_prompt += R"(
 
 # Available Skills
@@ -242,7 +242,7 @@ Some skills include executable scripts in their `<scripts>` section. To run a sk
 If a skill has `<allowed_tools>`, it declares which tools it needs. This helps you understand the skill's scope.
 
 )";
-    system_prompt += config.skill_prompt_section;
+    system_prompt += config.skills_prompt_section;
   }
 
   messages_.push_back({{"role", "system"}, {"content", system_prompt}});

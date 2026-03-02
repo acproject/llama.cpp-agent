@@ -46,8 +46,8 @@ struct agent_config {
 
   // Skills configuration (agentskills.io spec)
   bool enable_skills = true;
-  std::vector<std::string> skill_search_paths; // Additional search paths
-  std::string skill_prompt_section; // Pre-generated XML for prompt injection
+  std::vector<std::string> skills_search_paths; // Additional search paths
+  std::string skills_prompt_section; // Pre-generated XML for prompt injection
 
   // AGENTS.md configuration (agents.md spec)
   bool enable_agents_md = true;

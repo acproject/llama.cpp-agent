@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
@@ -28,6 +29,12 @@ public:
   // Generate XML section for system prompt injection
   // Returns empty string if no files discovered
   std::string generate_prompt_section() const;
+
+  // Get total content size(for logging/debugging)
+  size_t total_content_size() const;
+
+  // Check if any files have been discovered
+  bool has_files() const { return !files_.empty(); }
 
 private:
   std::vector<agents_md_file> files_; // Discovered files (ordered by depth)
