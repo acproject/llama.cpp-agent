@@ -1,9 +1,9 @@
 #include "agent-routes.h"
 
 #include "../tool-registry.h"
-#include "agent/agent-loop.h"
-#include "agent/permission-async.h"
-#include "agent/server/agent-session.h"
+#include "../agent-loop.h"
+#include "../permission-async.h"
+#include "agent-session.h"
 #include "server-http.h"
 
 #include <atomic>

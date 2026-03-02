@@ -2,9 +2,7 @@
 #include "agent-session.h"
 
 // server-context.h already included via agent-server.h -> agent-loop.h
-#include "agent/mcp/mcp-server-manager.h"
-#include "agent/mcp/mcp-tool-wrapper.h"
-#include "agent/subagent/subagent-runner.h"
+#include "../subagent/subagent-runner.h"
 #include "server-http.h"
 #include "../agent-loop.h"
 
@@ -25,7 +23,7 @@
 #include <utility>
 
 // MCP support (Unix only)
-#ifdef _WIN32
+#ifndef _WIN32
 #include "../mcp/mcp-server-manager.h"
 #include "../mcp/mcp-tool-wrapper.h"
 #endif

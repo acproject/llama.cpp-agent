@@ -1,8 +1,8 @@
 #include "agent-session.h"
 #include "../skills/skills-manager.h"
 #include "../agents-md/agents-md-manager.h"
-#include "agent/agent-loop.h"
-#include "agent/permission-async.h"
+#include "../agent-loop.h"
+#include "../permission-async.h"
 #include "common.h"
 
 #include <chrono>

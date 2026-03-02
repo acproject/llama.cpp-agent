@@ -1,8 +1,10 @@
 #pragma once
 
-#include "../agent-loop.h";
+#include "../agent-loop.h"
 #include <cstdint>
+#if defined(__APPLE__)
 #include <MacTypes.h>
+#endif
 #include <memory>
 #include "common.h"
 #include "../permission-async.h"
