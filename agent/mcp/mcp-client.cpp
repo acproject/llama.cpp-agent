@@ -5,8 +5,6 @@
 #include <cstddef>
 #include <sstream>
 #include <string>
-#include <sys/__endian.h>
-#include <sys/_types/_ssize_t.h>
 #include <unistd.h> // 提供系统调用，如 fork()、exec()、pipe() 等
 #include <signal.h> // 提供信号处理相关的函数，如 signal()、kill() 等
 #include <sys/wait.h> // 提供等待子进程结束的函数，如 waitpid_() 等

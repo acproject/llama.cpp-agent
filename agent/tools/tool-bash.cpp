@@ -7,10 +7,6 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include <sys/_types/_pid_t.h>
-#include <sys/_types/_ssize_t.h>
-#include <sys/fcntl.h>
-#include <sys/signal.h>
 #include <vector>
 
 #ifdef _WIN32
@@ -19,6 +15,7 @@
 #endif
 #include <windows.h>
 #else
+#include <sys/types.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>

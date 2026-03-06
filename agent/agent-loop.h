@@ -17,9 +17,6 @@
 #include <functional>
 #include <set>
 #include <string>
-#if !defined(_WIN32)
-#include <sys/proc.h>
-#endif
 #include <vector>
 
 using json = nlohmann::ordered_json;
