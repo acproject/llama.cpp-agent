@@ -35,8 +35,11 @@ struct agent_session_config {
   bool enable_skills = true;
   std::vector<std::string> extra_skills_paths;
 
-  // AGENTS.md configuration (agents.md spec
+  // AGENTS.md configuration (agents.md spec)
   bool enable_agents_md = true;
+
+  // Subagent configuration
+  int max_subagent_depth = 0; // 0 = use global setting, 1-5 = session-level override
 };
 
 // State of an agent session

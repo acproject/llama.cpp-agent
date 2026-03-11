@@ -138,6 +138,14 @@ agent_routes::agent_routes(agent_session_manager &session_mgr)
         if (body.contains("enable_agents_md")) {
           config.enable_agents_md = body["enable_agents_md"].get<bool>();
         }
+        // Subagent configuration
+        if (body.contains("max_subagent_depth")) {
+          int depth = body["max_subagent_depth"].get<int>();
+          // Clamp to valid range: 0-5
+          if (depth < 0) depth = 0;
+          if (depth > 5) depth = 5;
+          config.max_subagent_depth = depth;
+        }
       } catch (const json::parse_error &e) {
         return make_error(400, std::string("Invalid JSON: ") + e.what());
       }

@@ -26,6 +26,7 @@ struct tool_context {
   void *common_params_ptr = nullptr; // Pointer to common_params
   void *session_stats_ptr = nullptr; // Pointer to session_stats
   int subagent_depth = 0;
+  int max_subagent_depth = 0; // Maximum allowed nesting depth for this session
 
   // Prefix caching: base system prompt shared between parent and subagents
   // Subagent prompts start with this prefix to maximize KV cache reuse

@@ -129,6 +129,9 @@ void agent_session::send_message(const std::string &content,
     agent_cfg.enable_agents_md = config_.enable_agents_md;
     agent_cfg.agents_md_prompt_section = agents_md_prompt_section_;
 
+    // Subagent configuration
+    agent_cfg.max_subagent_depth = config_.max_subagent_depth;
+
     loop_ = std::make_unique<agent_loop>(
         server_ctx_, params_, agent_cfg, is_interrupted_);
   }

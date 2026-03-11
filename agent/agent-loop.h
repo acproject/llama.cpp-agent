@@ -51,6 +51,9 @@ struct agent_config {
   // AGENTS.md configuration (agents.md spec)
   bool enable_agents_md = true;
   std::string agents_md_prompt_section; // Pre-generated XML for prompt injection
+
+  // Subagent configuration
+  int max_subagent_depth = 0; // 0 = disabled, 1-5 = allowed nesting depth
 };
 
 

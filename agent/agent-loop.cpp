@@ -73,6 +73,7 @@ agent_loop::agent_loop(server_context &server_ctx, const common_params &params,
   tool_ctx_.common_params_ptr = const_cast<common_params *>(&params);
   tool_ctx_.session_stats_ptr = &stats_;
   tool_ctx_.subagent_depth = 0;
+  tool_ctx_.max_subagent_depth = config.max_subagent_depth;
 
   // Set up permission manager
   permission_mgr_.set_project_root(tool_ctx_.working_dir);
@@ -283,6 +284,7 @@ agent_loop::agent_loop(server_context &server_ctx, const common_params &params,
   tool_ctx_.common_params_ptr = const_cast<common_params *>(&params);
   tool_ctx_.session_stats_ptr = &stats_;
   tool_ctx_.subagent_depth = subagent_depth;
+  tool_ctx_.max_subagent_depth = config.max_subagent_depth;
 
   // Set up permission manager
   permission_mgr_.set_project_root(tool_ctx_.working_dir);
