@@ -13,7 +13,6 @@
 #include "log.h"
 
 #include "../subagent/subagent-display.h"
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -133,7 +132,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (params.model_alias.empty() && !params.model.name.empty()) {
-    params.model_alias = {params.model.name};
+    params.model_alias = params.model.name;
   }
 
   common_init();
@@ -163,28 +162,57 @@ int main(int argc, char *argv[]) {
   // Create session manager (manages agent sessions)
   agent_session_manager session_mgr(ctx_server, params);
 
-  // Create and register routers
-  agent_routes routes(session_mgr);
+  // Llama-server compatible routes (OpenAI-compatible /v1/*, /health, etc.)
+  server_routes server_api(params, ctx_server);
 
-  ctx_http.get("/health", ex_wrapper(routes.get_health));
-  ctx_http.get("/v1/agent/healh", ex_wrapper(routes.get_health));
+  if (params.model.path.empty()) {
+    LOG_ERR("Router mode is not supported by llama-agent-server. Please provide a model path.\n");
+    return 1;
+  }
 
-  ctx_http.post("/v1/agent/session", ex_wrapper(routes.post_session));
-  ctx_http.get("/v1/agent/session/:id", ex_wrapper(routes.get_session));
-  ctx_http.post("/v1/agent/session/:id/delete",
-                ex_wrapper(routes.delete_session));
-  ctx_http.get("/v1/agent/sessions", ex_wrapper(routes.get_sessions));
+  ctx_http.get("/health",              ex_wrapper(server_api.get_health));
+  ctx_http.get("/v1/health",           ex_wrapper(server_api.get_health));
+  ctx_http.get("/metrics",             ex_wrapper(server_api.get_metrics));
+  ctx_http.get("/props",               ex_wrapper(server_api.get_props));
+  ctx_http.post("/props",              ex_wrapper(server_api.post_props));
+  ctx_http.post("/api/show",           ex_wrapper(server_api.get_api_show));
+  ctx_http.get("/models",              ex_wrapper(server_api.get_models));
+  ctx_http.get("/v1/models",           ex_wrapper(server_api.get_models));
+  ctx_http.get("/api/tags",            ex_wrapper(server_api.get_models));
+  ctx_http.post("/completion",         ex_wrapper(server_api.post_completions));
+  ctx_http.post("/completions",        ex_wrapper(server_api.post_completions));
+  ctx_http.post("/v1/completions",     ex_wrapper(server_api.post_completions_oai));
+  ctx_http.post("/chat/completions",   ex_wrapper(server_api.post_chat_completions));
+  ctx_http.post("/v1/chat/completions", ex_wrapper(server_api.post_chat_completions));
+  ctx_http.post("/api/chat",           ex_wrapper(server_api.post_chat_completions));
+  ctx_http.post("/v1/responses",       ex_wrapper(server_api.post_responses_oai));
+  ctx_http.post("/v1/messages",        ex_wrapper(server_api.post_anthropic_messages));
+  ctx_http.post("/v1/messages/count_tokens", ex_wrapper(server_api.post_anthropic_count_tokens));
+  ctx_http.post("/infill",             ex_wrapper(server_api.post_infill));
+  ctx_http.post("/embeddings",         ex_wrapper(server_api.post_embeddings));
+  ctx_http.post("/v1/embeddings",      ex_wrapper(server_api.post_embeddings_oai));
+  ctx_http.post("/v1/rerank",          ex_wrapper(server_api.post_rerank));
+  ctx_http.post("/tokenize",           ex_wrapper(server_api.post_tokenize));
+  ctx_http.post("/detokenize",         ex_wrapper(server_api.post_detokenize));
+  ctx_http.post("/apply-template",     ex_wrapper(server_api.post_apply_template));
+  ctx_http.get("/lora-adapters",       ex_wrapper(server_api.get_lora_adapters));
+  ctx_http.post("/lora-adapters",      ex_wrapper(server_api.post_lora_adapters));
+  ctx_http.get("/slots",               ex_wrapper(server_api.get_slots));
+  ctx_http.post("/slots",              ex_wrapper(server_api.post_slots));
 
-  ctx_http.post("/v1/agent/session/:id/chat", ex_wrapper(routes.post_chat));
-  ctx_http.get("/v1/agent/session/:id/messages",
-               ex_wrapper(routes.get_messages));
-
-  ctx_http.get("/v1/agent/session/:id/permissions",
-               ex_wrapper(routes.get_permissions));
-  ctx_http.post("/v1/agent/permission/:id", ex_wrapper(routes.post_permission));
-
-  ctx_http.get("/v1/agent/tools", ex_wrapper(routes.get_tools));
-  ctx_http.get("/v1/agent/session/:id/stats", ex_wrapper(routes.get_stats));
+  // Agent-specific routes (session/subagent) live under /v1/agent/*
+  agent_routes agent_api(session_mgr);
+  ctx_http.get("/v1/agent/health", ex_wrapper(agent_api.get_health));
+  ctx_http.post("/v1/agent/session", ex_wrapper(agent_api.post_session));
+  ctx_http.get("/v1/agent/session/:id", ex_wrapper(agent_api.get_session));
+  ctx_http.post("/v1/agent/session/:id/delete", ex_wrapper(agent_api.delete_session));
+  ctx_http.get("/v1/agent/sessions", ex_wrapper(agent_api.get_sessions));
+  ctx_http.post("/v1/agent/session/:id/chat", ex_wrapper(agent_api.post_chat));
+  ctx_http.get("/v1/agent/session/:id/messages", ex_wrapper(agent_api.get_messages));
+  ctx_http.get("/v1/agent/session/:id/permissions", ex_wrapper(agent_api.get_permissions));
+  ctx_http.post("/v1/agent/permission/:id", ex_wrapper(agent_api.post_permission));
+  ctx_http.get("/v1/agent/tools", ex_wrapper(agent_api.get_tools));
+  ctx_http.get("/v1/agent/session/:id/stats", ex_wrapper(agent_api.get_stats));
 
   // Setup cleanup
   auto clean_up = [&ctx_http, &ctx_server]() {
@@ -212,6 +240,7 @@ int main(int argc, char *argv[]) {
     LOG_ERR("Failed to load model\n");
     return 1;
   }
+  server_api.update_meta(ctx_server);
   ctx_http.is_ready.store(true);
   LOG_INF("Modle loaded successfully\n");
 
