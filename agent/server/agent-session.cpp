@@ -258,6 +258,23 @@ size_t agent_session_manager::session_count() const {
   return sessions_.size();
 }
 
+std::string agent_session_manager::get_model_name() const {
+  // Return first model alias if set, otherwise extract filename from model path
+  if (!params_.model_alias.empty()) {
+    return *params_.model_alias.begin();
+  }
+  if (!params_.model.name.empty()) {
+    // Extract filename from path
+    std::string path = params_.model.name;
+    size_t pos = path.find_last_of("/\\");
+    if (pos != std::string::npos) {
+      return path.substr(pos + 1);
+    }
+    return path;
+  }
+  return "unknown";
+}
+
 void agent_session_manager::cleanup(int idle_timeout_seconds) {
   auto now = std::chrono::steady_clock::now();
   auto timeout = std::chrono::seconds(idle_timeout_seconds);

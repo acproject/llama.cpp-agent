@@ -37,6 +37,9 @@ struct agent_routes {
   // Tools
   handler_t get_tools;          // GET /v1/agent/tools - List available tools
 
+  // Models
+  handler_t get_models;         // GET /v1/models - List available models
+
   // Statistics
   handler_t get_stats; // GET /v1/agent/session/:id/stats - Get session stats
 

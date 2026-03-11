@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -351,6 +352,22 @@ agent_routes::agent_routes(agent_session_manager &session_mgr)
     }
     return make_json({{"tools", response}});
   };
+
+  // GET /v1/models - List available models (OpenAI compatible)
+  get_models = [this](const server_http_req &req) -> server_http_res_ptr {
+    std::string model_name = session_mgr_.get_model_name();
+    json model = {
+      {"id", model_name},
+      {"object", "model"},
+      {"created", std::time(nullptr)},
+      {"owned_by", "llama-agent-server"}
+    };
+    return make_json({
+      {"object", "list"},
+      {"data", json::array({model})}
+    });
+  };
+
   // GET /v1/agent/session/:id/stats - Get session statisitcs
   get_stats = [this](const server_http_req &req) -> server_http_res_ptr {
     std::string session_id = req.get_param("id");
@@ -390,5 +407,6 @@ void register_agent_routes(server_http_context &ctx, agent_routes &routes) {
   ctx.post("/v1/agent/permission/:id", routes.post_permission);
 
   ctx.get("/v1/agent/tools", routes.get_tools);
+  ctx.get("/v1/models", routes.get_models);
   ctx.get("/v1/agent/session/:id/stats", routes.get_stats);
 }

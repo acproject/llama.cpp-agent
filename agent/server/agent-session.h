@@ -159,6 +159,9 @@ public:
   // Get session count
   size_t session_count() const;
 
+  // Get model information
+  std::string get_model_name() const;
+
   // Clean up expired/idle sessions (optional TTL in sec)
   void cleanup(int idle_timeout_seconds = 3600);
 
