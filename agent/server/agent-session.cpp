@@ -259,9 +259,9 @@ size_t agent_session_manager::session_count() const {
 }
 
 std::string agent_session_manager::get_model_name() const {
-  // Return first model alias if set, otherwise extract filename from model path
+  // Return model alias if set, otherwise extract filename from model path
   if (!params_.model_alias.empty()) {
-    return *params_.model_alias.begin();
+    return params_.model_alias;
   }
   if (!params_.model.name.empty()) {
     // Extract filename from path
