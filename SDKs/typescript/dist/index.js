@@ -61,18 +61,48 @@ export class HttpAgentSession {
             h["Authorization"] = `Bearer ${this.server.apiKey}`;
         return h;
     }
+    async throwHttpError(res, url) {
+        let body = "";
+        try {
+            body = await res.text();
+        }
+        catch {
+        }
+        if (body.length > 4000)
+            body = body.slice(0, 4000);
+        throw new Error(`HTTP ${res.status} ${res.statusText} (${url})${body ? `: ${body}` : ""}`);
+    }
+    async fetchChecked(url, init) {
+        try {
+            return await fetch(url, init);
+        }
+        catch (e) {
+            const cause = e?.cause;
+            const parts = [];
+            if (cause && typeof cause === "object") {
+                const code = cause.code ?? cause.errno;
+                const msg = cause.message;
+                if (code)
+                    parts.push(String(code));
+                if (msg)
+                    parts.push(String(msg));
+            }
+            const extra = parts.length > 0 ? `: ${parts.join(" ")}` : "";
+            throw new Error(`fetch failed (${url})${extra}`);
+        }
+    }
     async chatCompletions(userPrompt, extra) {
         this._messages.push({ role: "user", content: userPrompt });
         const body = { model: this.cfg.model, messages: this._messages, stream: false, ...(extra ?? {}) };
         const url = endpointJoin(this.server.baseUrl.replace(/\/$/, ""), "/v1/chat/completions");
-        const res = await fetch(url, {
+        const res = await this.fetchChecked(url, {
             method: "POST",
             headers: this.headers(),
             body: JSON.stringify(body),
             signal: this.cfg.requestTimeoutMs ? AbortSignal.timeout(this.cfg.requestTimeoutMs) : undefined
         });
         if (!res.ok)
-            throw new Error(`HTTP ${res.status}`);
+            await this.throwHttpError(res, url);
         const out = (await res.json());
         const choices = out["choices"] ?? [];
         const msg = choices[0]?.message;
@@ -84,14 +114,14 @@ export class HttpAgentSession {
         this._messages.push({ role: "user", content: userPrompt });
         const body = { model: this.cfg.model, messages: this._messages, stream: true, ...(extra ?? {}) };
         const url = endpointJoin(this.server.baseUrl.replace(/\/$/, ""), "/v1/chat/completions");
-        const res = await fetch(url, {
+        const res = await this.fetchChecked(url, {
             method: "POST",
             headers: this.headers(),
             body: JSON.stringify(body),
             signal: this.cfg.requestTimeoutMs ? AbortSignal.timeout(this.cfg.requestTimeoutMs) : undefined
         });
         if (!res.ok)
-            throw new Error(`HTTP ${res.status}`);
+            await this.throwHttpError(res, url);
         if (!res.body)
             throw new Error("Missing response body");
         const contentParts = [];
@@ -145,3 +175,4 @@ export class HttpAgentSession {
         return { usage, content, reasoning, toolCallsByIndex };
     }
 }
+export { MiniMemoryClient, respToJson } from "./minimemory.js";

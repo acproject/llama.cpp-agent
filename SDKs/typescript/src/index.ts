@@ -109,17 +109,44 @@ export class HttpAgentSession {
     return h;
   }
 
+  private async throwHttpError(res: Response, url: string): Promise<never> {
+    let body = "";
+    try {
+      body = await res.text();
+    } catch {
+    }
+    if (body.length > 4000) body = body.slice(0, 4000);
+    throw new Error(`HTTP ${res.status} ${res.statusText} (${url})${body ? `: ${body}` : ""}`);
+  }
+
+  private async fetchChecked(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(url, init);
+    } catch (e: any) {
+      const cause = e?.cause;
+      const parts: string[] = [];
+      if (cause && typeof cause === "object") {
+        const code = (cause as any).code ?? (cause as any).errno;
+        const msg = (cause as any).message;
+        if (code) parts.push(String(code));
+        if (msg) parts.push(String(msg));
+      }
+      const extra = parts.length > 0 ? `: ${parts.join(" ")}` : "";
+      throw new Error(`fetch failed (${url})${extra}`);
+    }
+  }
+
   async chatCompletions(userPrompt: string, extra?: Json): Promise<Json> {
     this._messages.push({ role: "user", content: userPrompt });
     const body: Json = { model: this.cfg.model, messages: this._messages, stream: false, ...(extra ?? {}) };
     const url = endpointJoin(this.server.baseUrl.replace(/\/$/, ""), "/v1/chat/completions");
-    const res = await fetch(url, {
+    const res = await this.fetchChecked(url, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
       signal: this.cfg.requestTimeoutMs ? AbortSignal.timeout(this.cfg.requestTimeoutMs) : undefined
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) await this.throwHttpError(res, url);
     const out = (await res.json()) as Json;
     const choices = (out["choices"] as any[]) ?? [];
     const msg = choices[0]?.message as ChatMessage | undefined;
@@ -135,13 +162,13 @@ export class HttpAgentSession {
     this._messages.push({ role: "user", content: userPrompt });
     const body: Json = { model: this.cfg.model, messages: this._messages, stream: true, ...(extra ?? {}) };
     const url = endpointJoin(this.server.baseUrl.replace(/\/$/, ""), "/v1/chat/completions");
-    const res = await fetch(url, {
+    const res = await this.fetchChecked(url, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
       signal: this.cfg.requestTimeoutMs ? AbortSignal.timeout(this.cfg.requestTimeoutMs) : undefined
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) await this.throwHttpError(res, url);
     if (!res.body) throw new Error("Missing response body");
 
     const contentParts: string[] = [];
@@ -189,3 +216,5 @@ export class HttpAgentSession {
     return { usage, content, reasoning, toolCallsByIndex };
   }
 }
+
+export { MiniMemoryClient, respToJson, type RespValue } from "./minimemory.js";

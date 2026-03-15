@@ -51,6 +51,8 @@ export declare class HttpAgentSession {
     get messages(): ChatMessage[];
     clear(): void;
     private headers;
+    private throwHttpError;
+    private fetchChecked;
     chatCompletions(userPrompt: string, extra?: Json): Promise<Json>;
     chatCompletionsStream(userPrompt: string, onDelta?: (textDelta: string) => void, extra?: Json): Promise<{
         usage?: Json;
@@ -59,3 +61,4 @@ export declare class HttpAgentSession {
         toolCallsByIndex: Map<number, any>;
     }>;
 }
+export { MiniMemoryClient, respToJson, type RespValue } from "./minimemory.js";

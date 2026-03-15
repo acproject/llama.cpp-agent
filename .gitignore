@@ -40,5 +40,6 @@ compile_commands.json
 *.vcxproj.filters
 *.vcxproj.user
 .vs/
-.m2
-node_module
+**/.m2
+**//dist
+**/node_modules
