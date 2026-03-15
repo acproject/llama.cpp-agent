@@ -4,6 +4,8 @@
 // server-context.h already included via agent-server.h -> agent-loop.h
 #include "../subagent/subagent-runner.h"
 #include "server-http.h"
+#include "server-models.h"
+#include "../tool-registry.h"
 #include "../agent-loop.h"
 
 
@@ -17,6 +19,7 @@
 #include <cstdlib>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -52,25 +55,34 @@ static inline void signal_handler(int signal) {
 static server_http_context::handler_t
 ex_wrapper(server_http_context::handler_t func) {
   return [func = std::move(func)](const server_http_req &req) -> server_http_res_ptr {
+    std::string message;
+    error_type error;
     try {
       return func(req);
     } catch (const std::invalid_argument &e) {
-      auto res = std::make_unique<server_http_res>();
-      res->status = 400;
-      res->data = json{{"error", e.what()}}.dump();
-      return res;
+      error = ERROR_TYPE_INVALID_REQUEST;
+      message = e.what();
     } catch (const std::exception &e) {
-      auto res = std::make_unique<server_http_res>();
-      res->status = 500;
-      res->data = json{{"error", e.what()}}.dump();
-      LOG_ERR("Handler exception: %s\n", e.what());
-      return res;
+      error = ERROR_TYPE_SERVER;
+      message = e.what();
     } catch (...) {
-      auto res = std::make_unique<server_http_res>();
-      res->status = 500;
-      res->data = json{{"error", "Unknown error"}}.dump();
-      return res;
+      error = ERROR_TYPE_SERVER;
+      message = "unknown error";
     }
+
+    auto res = std::make_unique<server_http_res>();
+    res->status = 500;
+    try {
+      json error_data = format_error_response(message, error);
+      res->status = json_value(error_data, "code", 500);
+      res->data = safe_json_to_str({{"error", error_data}});
+      SRV_WRN("got exception: %s\n", res->data.c_str());
+    } catch (const std::exception &e) {
+      SRV_ERR("got another exception: %s | while handling exception: %s\n", e.what(),
+              message.c_str());
+      res->data = "Internal Server Error";
+    }
+    return res;
 };
 }
 
@@ -159,15 +171,52 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // Create session manager (manages agent sessions)
-  agent_session_manager session_mgr(ctx_server, params);
-
   // Llama-server compatible routes (OpenAI-compatible /v1/*, /health, etc.)
   server_routes server_api(params, ctx_server);
 
-  if (params.model.path.empty()) {
-    LOG_ERR("Router mode is not supported by llama-agent-server. Please provide a model path.\n");
-    return 1;
+  const bool is_router_server = params.model.path.empty();
+  std::optional<server_models_routes> models_routes;
+
+  std::unique_ptr<agent_session_manager> session_mgr;
+  std::unique_ptr<agent_routes> agent_api;
+
+  if (is_router_server) {
+    try {
+      models_routes.emplace(params, argc, argv);
+    } catch (const std::exception & e) {
+      LOG_ERR("Failed to initialize router models: %s\n", e.what());
+      return 1;
+    }
+
+    server_api.get_metrics                 = models_routes->proxy_get;
+    server_api.post_props                  = models_routes->proxy_post;
+    server_api.get_api_show                = models_routes->proxy_get;
+    server_api.post_completions            = models_routes->proxy_post;
+    server_api.post_completions_oai        = models_routes->proxy_post;
+    server_api.post_chat_completions       = models_routes->proxy_post;
+    server_api.post_responses_oai          = models_routes->proxy_post;
+    server_api.post_anthropic_messages     = models_routes->proxy_post;
+    server_api.post_anthropic_count_tokens = models_routes->proxy_post;
+    server_api.post_infill                 = models_routes->proxy_post;
+    server_api.post_embeddings             = models_routes->proxy_post;
+    server_api.post_embeddings_oai         = models_routes->proxy_post;
+    server_api.post_rerank                 = models_routes->proxy_post;
+    server_api.post_tokenize               = models_routes->proxy_post;
+    server_api.post_detokenize             = models_routes->proxy_post;
+    server_api.post_apply_template         = models_routes->proxy_post;
+    server_api.get_lora_adapters           = models_routes->proxy_get;
+    server_api.post_lora_adapters          = models_routes->proxy_post;
+    server_api.get_slots                   = models_routes->proxy_get;
+    server_api.post_slots                  = models_routes->proxy_post;
+
+    server_api.get_props  = models_routes->get_router_props;
+    server_api.get_models = models_routes->get_router_models;
+
+    ctx_http.post("/models/load", ex_wrapper(models_routes->post_router_models_load));
+    ctx_http.post("/models/unload", ex_wrapper(models_routes->post_router_models_unload));
+  } else {
+    session_mgr = std::make_unique<agent_session_manager>(ctx_server, params);
+    agent_api = std::make_unique<agent_routes>(*session_mgr);
   }
 
   ctx_http.get("/health",              ex_wrapper(server_api.get_health));
@@ -189,36 +238,122 @@ int main(int argc, char *argv[]) {
   ctx_http.post("/v1/messages",        ex_wrapper(server_api.post_anthropic_messages));
   ctx_http.post("/v1/messages/count_tokens", ex_wrapper(server_api.post_anthropic_count_tokens));
   ctx_http.post("/infill",             ex_wrapper(server_api.post_infill));
+  ctx_http.post("/embedding",          ex_wrapper(server_api.post_embeddings));
   ctx_http.post("/embeddings",         ex_wrapper(server_api.post_embeddings));
   ctx_http.post("/v1/embeddings",      ex_wrapper(server_api.post_embeddings_oai));
+  ctx_http.post("/rerank",             ex_wrapper(server_api.post_rerank));
+  ctx_http.post("/reranking",          ex_wrapper(server_api.post_rerank));
   ctx_http.post("/v1/rerank",          ex_wrapper(server_api.post_rerank));
+  ctx_http.post("/v1/reranking",       ex_wrapper(server_api.post_rerank));
   ctx_http.post("/tokenize",           ex_wrapper(server_api.post_tokenize));
   ctx_http.post("/detokenize",         ex_wrapper(server_api.post_detokenize));
   ctx_http.post("/apply-template",     ex_wrapper(server_api.post_apply_template));
   ctx_http.get("/lora-adapters",       ex_wrapper(server_api.get_lora_adapters));
   ctx_http.post("/lora-adapters",      ex_wrapper(server_api.post_lora_adapters));
   ctx_http.get("/slots",               ex_wrapper(server_api.get_slots));
+  ctx_http.post("/slots/:id_slot",     ex_wrapper(server_api.post_slots));
   ctx_http.post("/slots",              ex_wrapper(server_api.post_slots));
 
-  // Agent-specific routes (session/subagent) live under /v1/agent/*
-  agent_routes agent_api(session_mgr);
-  ctx_http.get("/v1/agent/health", ex_wrapper(agent_api.get_health));
-  ctx_http.post("/v1/agent/session", ex_wrapper(agent_api.post_session));
-  ctx_http.get("/v1/agent/session/:id", ex_wrapper(agent_api.get_session));
-  ctx_http.post("/v1/agent/session/:id/delete", ex_wrapper(agent_api.delete_session));
-  ctx_http.get("/v1/agent/sessions", ex_wrapper(agent_api.get_sessions));
-  ctx_http.post("/v1/agent/session/:id/chat", ex_wrapper(agent_api.post_chat));
-  ctx_http.get("/v1/agent/session/:id/messages", ex_wrapper(agent_api.get_messages));
-  ctx_http.get("/v1/agent/session/:id/permissions", ex_wrapper(agent_api.get_permissions));
-  ctx_http.post("/v1/agent/permission/:id", ex_wrapper(agent_api.post_permission));
-  ctx_http.get("/v1/agent/tools", ex_wrapper(agent_api.get_tools));
-  ctx_http.get("/v1/agent/session/:id/stats", ex_wrapper(agent_api.get_stats));
+  if (!is_router_server) {
+    ctx_http.get("/v1/agent/health", ex_wrapper(agent_api->get_health));
+    ctx_http.post("/v1/agent/session", ex_wrapper(agent_api->post_session));
+    ctx_http.get("/v1/agent/session/:id", ex_wrapper(agent_api->get_session));
+    ctx_http.post("/v1/agent/session/:id/delete", ex_wrapper(agent_api->delete_session));
+    ctx_http.get("/v1/agent/sessions", ex_wrapper(agent_api->get_sessions));
+    ctx_http.post("/v1/agent/session/:id/chat", ex_wrapper(agent_api->post_chat));
+    ctx_http.get("/v1/agent/session/:id/messages", ex_wrapper(agent_api->get_messages));
+    ctx_http.get("/v1/agent/session/:id/permissions", ex_wrapper(agent_api->get_permissions));
+    ctx_http.post("/v1/agent/permission/:id", ex_wrapper(agent_api->post_permission));
+    ctx_http.get("/v1/agent/tools", ex_wrapper(agent_api->get_tools));
+    ctx_http.get("/v1/agent/session/:id/stats", ex_wrapper(agent_api->get_stats));
+  } else {
+    auto proxy_agent_get = [&models_routes](const server_http_req & req) -> server_http_res_ptr {
+      if (!models_routes.has_value()) {
+        throw std::runtime_error("router models are not initialized");
+      }
+      if (req.get_param("model").empty()) {
+        throw std::invalid_argument("Missing 'model' query parameter");
+      }
+      return models_routes->proxy_get(req);
+    };
+
+    auto proxy_agent_post = [&models_routes](const server_http_req & req) -> server_http_res_ptr {
+      if (!models_routes.has_value()) {
+        throw std::runtime_error("router models are not initialized");
+      }
+      std::string model = req.get_param("model");
+      if (model.empty() && !req.body.empty()) {
+        try {
+          json body = json::parse(req.body);
+          if (body.contains("model") && body["model"].is_string()) {
+            model = body["model"].get<std::string>();
+          }
+        } catch (...) {
+        }
+      }
+      if (model.empty()) {
+        throw std::invalid_argument("Missing model");
+      }
+
+      json body = json::object();
+      if (!req.body.empty()) {
+        try {
+          body = json::parse(req.body);
+        } catch (const std::exception &e) {
+          throw std::invalid_argument(std::string("Invalid JSON: ") + e.what());
+        }
+      }
+      body["model"] = model;
+      server_http_req req2 = req;
+      req2.body = body.dump();
+      return models_routes->proxy_post(req2);
+    };
+
+    ctx_http.get("/v1/agent/health", ex_wrapper([](const server_http_req &) -> server_http_res_ptr {
+      auto res = std::make_unique<server_http_res>();
+      res->status = 200;
+      res->data = json{{"status", "ok"}}.dump();
+      return res;
+    }));
+
+    ctx_http.post("/v1/agent/session", ex_wrapper(proxy_agent_post));
+    ctx_http.get("/v1/agent/session/:id", ex_wrapper(proxy_agent_get));
+    ctx_http.post("/v1/agent/session/:id/delete", ex_wrapper(proxy_agent_post));
+    ctx_http.get("/v1/agent/sessions", ex_wrapper(proxy_agent_get));
+    ctx_http.post("/v1/agent/session/:id/chat", ex_wrapper(proxy_agent_post));
+    ctx_http.get("/v1/agent/session/:id/messages", ex_wrapper(proxy_agent_get));
+    ctx_http.get("/v1/agent/session/:id/permissions", ex_wrapper(proxy_agent_get));
+    ctx_http.post("/v1/agent/permission/:id", ex_wrapper(proxy_agent_post));
+
+    ctx_http.get("/v1/agent/tools", ex_wrapper([](const server_http_req &) -> server_http_res_ptr {
+      auto tools = tool_registry::instance().to_chat_tools();
+      json response = json::array();
+      for (const auto & tool : tools) {
+        response.push_back({
+          {"name", tool.name},
+          {"description", tool.description},
+          {"parameters", json::parse(tool.parameters)},
+        });
+      }
+      auto res = std::make_unique<server_http_res>();
+      res->status = 200;
+      res->data = json{{"tools", response}}.dump();
+      return res;
+    }));
+
+    ctx_http.get("/v1/agent/session/:id/stats", ex_wrapper(proxy_agent_get));
+  }
 
   // Setup cleanup
-  auto clean_up = [&ctx_http, &ctx_server]() {
+  auto clean_up = [&ctx_http, &ctx_server, &models_routes, is_router_server]() {
     LOG_INF("Cleaning up before exit...\n");
     ctx_http.stop();
-    ctx_server.terminate();
+    if (!is_router_server) {
+      ctx_server.terminate();
+    }
+    if (is_router_server && models_routes.has_value()) {
+      models_routes->models.unload_all();
+    }
     llama_backend_free();
   };
 
@@ -227,6 +362,40 @@ int main(int argc, char *argv[]) {
     clean_up();
     LOG_ERR("Failed to start HTTP server\n");
     return 1;
+  }
+
+  shutdown_handler = [&](int) {
+    if (is_router_server) {
+      ctx_http.stop();
+    } else {
+      ctx_server.terminate();
+    }
+  };
+
+  if (is_router_server) {
+    ctx_http.is_ready.store(true);
+    LOG_INF("\n");
+    LOG_INF("==============================================\n");
+    LOG_INF("llama-agent-server (router) is listening on %s\n",
+            ctx_http.listening_address.c_str());
+    LOG_INF("==============================================\n");
+    LOG_INF("\n");
+    LOG_INF("Router endpoints:\n");
+    LOG_INF("  GET  /models                        - List models\n");
+    LOG_INF("  POST /models/load                   - Load a model\n");
+    LOG_INF("  POST /models/unload                 - Unload a model\n");
+    LOG_INF("  GET  /health                        - Health check\n");
+    LOG_INF("\n");
+    LOG_INF("Agent router requires model selection:\n");
+    LOG_INF("  GET endpoints:  ?model=MODEL_ID\n");
+    LOG_INF("  POST endpoints: JSON body {\"model\": MODEL_ID, ...} or ?model=MODEL_ID\n");
+
+    if (ctx_http.thread.joinable()) {
+      ctx_http.thread.join();
+    }
+    clean_up();
+    LOG_INF("llama-agent-server stoped\n");
+    return 0;
   }
 
   // load the model
@@ -243,6 +412,12 @@ int main(int argc, char *argv[]) {
   server_api.update_meta(ctx_server);
   ctx_http.is_ready.store(true);
   LOG_INF("Modle loaded successfully\n");
+
+  const char * router_port = std::getenv("LLAMA_SERVER_ROUTER_PORT");
+  std::thread monitor_thread;
+  if (router_port != nullptr) {
+    monitor_thread = server_models::setup_child_server(shutdown_handler);
+  }
 
   // Initialize MCP servers (Unix only)
   // MCP manager must be declared here to outlive session manager  (tools hold
@@ -294,6 +469,9 @@ int main(int argc, char *argv[]) {
 
   if (ctx_http.thread.joinable()) {
     ctx_http.thread.join();
+  }
+  if (monitor_thread.joinable()) {
+    monitor_thread.join();
   }
   LOG_INF("llama-agent-server stoped\n");
   return 0;

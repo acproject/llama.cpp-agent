@@ -40,3 +40,5 @@ compile_commands.json
 *.vcxproj.filters
 *.vcxproj.user
 .vs/
+.m2
+node_module
