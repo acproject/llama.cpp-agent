@@ -144,7 +144,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (params.model_alias.empty() && !params.model.name.empty()) {
-    params.model_alias = params.model.name;
+    params.model_alias = {params.model.name};
   }
 
   common_init();
