@@ -5,6 +5,7 @@
 #include "../permission-async.h"
 #include "agent-session.h"
 #include "server-http.h"
+#include "mtmd.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -195,6 +196,7 @@ agent_routes::agent_routes(agent_session_manager &session_mgr)
         return make_json({{"sessions", response}});
     };
   // POST /v1/agent/session/:id/chat - Send message with streaming response
+  // Supports both text-only and multimodal content (OpenAI format)
   post_chat = [this](const server_http_req &req) -> server_http_res_ptr {
     std::string session_id = req.get_param("id");
     if (session_id.empty()) {
@@ -206,14 +208,63 @@ agent_routes::agent_routes(agent_session_manager &session_mgr)
       return make_error(404, "Session not found");
     }
 
-    // Parse message content from body
-    std::string content;
+    // Parse message content from body - supports text or multimodal
+    json body;
+    json user_message;
+    user_message["role"] = "user";
+    
     try {
-      json body = json::parse(req.body);
-      if (!body.contains("content") || !body["content"].is_string()) {
-        return make_error(400, "Miss 'content' field");
+      body = json::parse(req.body);
+      if (!body.contains("content")) {
+        return make_error(400, "Missing 'content' field");
       }
-      content = body["content"].get<std::string>();
+      
+      // content can be string (text-only) or array (multimodal)
+      if (body["content"].is_string()) {
+        // Text-only message
+        user_message["content"] = body["content"];
+      } else if (body["content"].is_array()) {
+        // Multimodal message - process image_url and input_audio
+        json content_array = body["content"];
+        json processed_content = json::array();
+        
+        for (auto &item : content_array) {
+          std::string type = item.value("type", std::string());
+          
+          if (type == "text") {
+            processed_content.push_back(item);
+          } else if (type == "image_url") {
+            // Image input - convert to media marker
+            // The server will handle the actual image processing
+            json text_item;
+            text_item["type"] = "text";
+            text_item["text"] = mtmd_default_marker();
+            processed_content.push_back(text_item);
+            // Keep image_url for server processing
+            json image_item;
+            image_item["type"] = "image_url";
+            image_item["image_url"] = item["image_url"];
+            processed_content.push_back(image_item);
+          } else if (type == "input_audio") {
+            // Audio input - convert to media marker
+            json text_item;
+            text_item["type"] = "text";
+            text_item["text"] = mtmd_default_marker();
+            processed_content.push_back(text_item);
+            // Keep input_audio for server processing
+            json audio_item;
+            audio_item["type"] = "input_audio";
+            audio_item["input_audio"] = item["input_audio"];
+            processed_content.push_back(audio_item);
+          } else {
+            // Unknown type - pass through
+            processed_content.push_back(item);
+          }
+        }
+        user_message["content"] = processed_content;
+      } else {
+        return make_error(400, "'content' must be string or array");
+      }
     } catch (const json::parse_error &e) {
       return make_error(400, std::string("Invalid JSON: ") + e.what());
     }
@@ -225,7 +276,8 @@ agent_routes::agent_routes(agent_session_manager &session_mgr)
     auto sse_shared = std::make_shared<sse_stream_res>();
 
     // Start processing in background - capture shared_ptr to extend lifetiem
-    session->send_message(content, [sse_shared](const agent_event &event) {
+    // Use multimodal method for both text and multimodal content
+    session->send_message_multimodal(user_message, [sse_shared](const agent_event &event) {
       std::string event_type;
       switch (event.type) {
       case agent_event_type::TEXT_DELTA:

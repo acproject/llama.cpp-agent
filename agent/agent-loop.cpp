@@ -1,5 +1,6 @@
 #include "agent-loop.h"
 #include "console.h"
+#include "mtmd.h"
 
 #include <chrono>
 #include <functional>
@@ -785,6 +786,102 @@ agent_loop_result agent_loop::run(const std::string &user_prompt) {
   return result;
 }
 
+// Multimodal version of run() - accepts JSON message with images/audio
+agent_loop_result agent_loop::run_multimodal(const json &user_message) {
+  agent_loop_result result;
+  result.iterations = 0;
+
+  // Add user message (can contain multimodal content)
+  messages_.push_back(user_message);
+
+  while (result.iterations < config_.max_iterations) {
+    if (is_interrupted_.load()) {
+      result.stop_reason = agent_stop_reason::USER_CANCELLED;
+      return result;
+    }
+
+    result.iterations++;
+
+    if (config_.verbose && !is_subagent_) {
+      console::log("\n[Iteration %d/%d]\n", result.iterations,
+                   config_.max_iterations);
+    }
+
+    // Generate completion - returns parsed message with tool calls
+    result_timings timings;
+    common_chat_msg parsed = generate_completion(timings);
+
+    // Accumulate session statistics
+    if (timings.prompt_n > 0) {
+      stats_.total_input += timings.prompt_n;
+      stats_.total_prompt_ms += timings.prompt_ms;
+    }
+    if (timings.predicted_n > 0) {
+      stats_.total_output += timings.predicted_n;
+      stats_.total_predicted_ms += timings.predicted_ms;
+    }
+    if (timings.cache_n > 0) {
+      stats_.total_cached += timings.cache_n;
+    }
+
+    if (parsed.content.empty() && parsed.tool_calls.empty() &&
+        is_interrupted_.load()) {
+      result.stop_reason = agent_stop_reason::USER_CANCELLED;
+      return result;
+    }
+
+    // Add assistant message to history
+    json assistant_msg;
+    assistant_msg["role"] = "assistant";
+    assistant_msg["content"] = parsed.content;
+
+    if (!parsed.tool_calls.empty()) {
+      assistant_msg["tool_calls"] = json::array();
+      for (const auto &call : parsed.tool_calls) {
+        json tc;
+        tc["id"] = call.id.empty()
+                       ? ("call_" + std::to_string(result.iterations))
+                       : call.id;
+        tc["type"] = "function";
+        tc["function"] = {{"name", call.name}, {"arguments", call.arguments}};
+        assistant_msg["tool_calls"].push_back(tc);
+      }
+    }
+
+    messages_.push_back(assistant_msg);
+
+    // If no tool calls, we're done
+    if (parsed.tool_calls.empty()) {
+      result.stop_reason = agent_stop_reason::COMPLETED;
+      result.final_response = parsed.content;
+      return result;
+    }
+
+    if (!is_subagent_) {
+      console::log("\n");
+    }
+
+    // Execute each tool call
+    for (const auto &call : parsed.tool_calls) {
+      if (is_interrupted_.load()) {
+        result.stop_reason = agent_stop_reason::USER_CANCELLED;
+        return result;
+      }
+
+      tool_result tool_res = execute_tool_call(call);
+      std::string call_id = call.id.empty()
+                                ? ("call_" + std::to_string(result.iterations))
+                                : call.id;
+      add_tool_result_message(call.name, call_id, tool_res);
+    }
+  }
+
+  result.stop_reason = agent_stop_reason::MAX_ITERATIONS;
+  result.final_response = "Reached maximum iterations (" +
+                          std::to_string(config_.max_iterations) + ")";
+  return result;
+}
+
 // Streaming version of run() for API use
 agent_loop_result agent_loop::run_streaming(
     const std::string &user_prompt, agent_event_callback on_event,
@@ -800,6 +897,129 @@ agent_loop_result agent_loop::run_streaming(
 
   // Add user message
   messages_.push_back({{"role", "user"}, {"content", user_prompt}});
+
+  while (result.iterations < config_.max_iterations) {
+    if (should_stop()) {
+      result.stop_reason = agent_stop_reason::USER_CANCELLED;
+      on_event(agent_event::completed(result.stop_reason, stats_));
+      return result;
+    }
+
+    result.iterations++;
+
+    // Emit iteration start event
+    on_event(agent_event::iteration_start(result.iterations,
+                                          config_.max_iterations));
+
+    // Generate completion with streaming
+    result_timings timings;
+    common_chat_msg parsed =
+        generate_completion_streaming(timings, on_event, should_stop);
+
+    // Accumulate session statistics
+    if (timings.prompt_n > 0) {
+      stats_.total_input += timings.prompt_n;
+      stats_.total_prompt_ms += timings.prompt_ms;
+    }
+    if (timings.predicted_n > 0) {
+      stats_.total_output += timings.predicted_n;
+      stats_.total_predicted_ms += timings.predicted_ms;
+    }
+    if (timings.cache_n > 0) {
+      stats_.total_cached += timings.cache_n;
+    }
+
+    if (parsed.content.empty() && parsed.tool_calls.empty() && should_stop()) {
+      result.stop_reason = agent_stop_reason::USER_CANCELLED;
+      on_event(agent_event::completed(result.stop_reason, stats_));
+      return result;
+    }
+
+    // Add assistant message to history
+    json assistant_msg;
+    assistant_msg["role"] = "assistant";
+    assistant_msg["content"] = parsed.content;
+
+    if (!parsed.tool_calls.empty()) {
+      assistant_msg["tool_calls"] = json::array();
+      for (const auto &call : parsed.tool_calls) {
+        json tc;
+        tc["id"] = call.id.empty()
+                       ? ("call_" + std::to_string(result.iterations))
+                       : call.id;
+        tc["type"] = "function";
+        tc["function"] = {{"name", call.name}, {"arguments", call.arguments}};
+        assistant_msg["tool_calls"].push_back(tc);
+      }
+    }
+
+    messages_.push_back(assistant_msg);
+
+    // If no tool calls, we're done
+    if (parsed.tool_calls.empty()) {
+      result.stop_reason = agent_stop_reason::COMPLETED;
+      result.final_response = parsed.content;
+      on_event(agent_event::completed(result.stop_reason, stats_));
+      return result;
+    }
+
+    // Execute each tool call
+    for (const auto &call : parsed.tool_calls) {
+      if (should_stop()) {
+        result.stop_reason = agent_stop_reason::USER_CANCELLED;
+        on_event(agent_event::completed(result.stop_reason, stats_));
+        return result;
+      }
+
+      // Emit tool start event
+      on_event(agent_event::tool_start(call.name, call.arguments));
+
+      auto start_time = std::chrono::steady_clock::now();
+
+      // Use async permission handling if async_perms is provided
+      tool_result tool_res =
+          async_perms ? execute_tool_call_async(call, on_event, async_perms,
+                                                should_stop)
+                      : execute_tool_call(call);
+
+      auto end_time = std::chrono::steady_clock::now();
+      auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            end_time - start_time)
+                            .count();
+
+      // Emit tool result event
+      on_event(agent_event::tool_result(call.name, tool_res.success,
+                                        tool_res.output, elapsed_ms));
+
+      std::string call_id = call.id.empty()
+                                ? ("call_" + std::to_string(result.iterations))
+                                : call.id;
+      add_tool_result_message(call.name, call_id, tool_res);
+    }
+  }
+
+  result.stop_reason = agent_stop_reason::MAX_ITERATIONS;
+  result.final_response = "Reached maximum iterations (" +
+                          std::to_string(config_.max_iterations) + ")";
+  on_event(agent_event::completed(result.stop_reason, stats_));
+  return result;
+}
+
+// Multimodal streaming version - accepts JSON message with images/audio
+agent_loop_result agent_loop::run_streaming_multimodal(
+    const json &user_message, agent_event_callback on_event,
+    std::function<bool()> should_stop, permission_manager_async *async_perms) {
+
+  agent_loop_result result;
+  result.iterations = 0;
+
+  // Default should_stop to check is_interrupted_
+  if (!should_stop) {
+    should_stop = [this]() { return is_interrupted_.load(); };
+  }
+
+  // Add user message (can contain multimodal content)
+  messages_.push_back(user_message);
 
   while (result.iterations < config_.max_iterations) {
     if (should_stop()) {

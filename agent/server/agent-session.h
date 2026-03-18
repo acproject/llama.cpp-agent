@@ -81,7 +81,13 @@ public:
   // Send a message and get streaming events
   // Returns immediately - events are delivered via callback
   // Call is_completed()  and get_result() to check status
+  // text-only version
   void send_message(const std::string &content, agent_event_callback on_event);
+
+  // Multimodal version - accepts JSON message with images/audio
+  // user_message is a JSON object with role and content fields
+  // content can be a string or array of content parts (OpenAI format)
+  void send_message_multimodal(const json &user_message, agent_event_callback on_event);
 
   // Check if the current operation is complete
   bool is_completed() const { return !is_running_.load(); }

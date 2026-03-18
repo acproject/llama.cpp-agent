@@ -155,6 +155,60 @@ void agent_session::send_message(const std::string &content,
 });
 }
 
+// Multimodal version of send_message - accepts JSON message with images/audio
+void agent_session::send_message_multimodal(const json &user_message,
+                                             agent_event_callback on_event) {
+  // Wait for any previous operation to complete
+  if (worker_thread_.joinable()) {
+    worker_thread_.join();
+  }
+
+  last_activity_ = std::chrono::steady_clock::now();
+  is_running_.store(true);
+  is_interrupted_.store(false);
+  state_.store(agent_session_state::RUNNING);
+
+  // Create agent_loop if it does not exist
+  if (!loop_) {
+    agent_config agent_cfg;
+    agent_cfg.max_iterations = config_.max_iterations;
+    agent_cfg.tool_timeout_ms = config_.tool_timeout_ms;
+    agent_cfg.working_dir = config_.working_dir;
+    agent_cfg.yolo_mode = config_.yolo_mode;
+
+    // Skills configuation
+    agent_cfg.enable_skills = config_.enable_skills;
+    agent_cfg.skills_search_paths = config_.extra_skills_paths;
+    agent_cfg.skills_prompt_section = skills_prompt_section_;
+
+    // AGENTS.md configuration
+    agent_cfg.enable_agents_md = config_.enable_agents_md;
+    agent_cfg.agents_md_prompt_section = agents_md_prompt_section_;
+
+    // Subagent configuration
+    agent_cfg.max_subagent_depth = config_.max_subagent_depth;
+
+    loop_ = std::make_unique<agent_loop>(
+        server_ctx_, params_, agent_cfg, is_interrupted_);
+  }
+  // Run in background thread with multimodal content
+  worker_thread_ = std::thread([this, user_message, on_event]() {
+    auto should_stop = [this]() { return is_interrupted_.load(); };
+
+    // Use multimodal streaming method
+    agent_loop_result result =
+        loop_->run_streaming_multimodal(user_message, on_event, should_stop, &permissions_);
+    {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        last_result_ = result;
+    }
+
+    state_.store(agent_session_state::IDLE);
+    is_running_.store(false);
+    last_activity_ = std::chrono::steady_clock::now();
+  });
+}
+
 std::optional<agent_loop_result> agent_session::get_result() {
   std::lock_guard<std::mutex> lock(result_mutex_);
   return last_result_;

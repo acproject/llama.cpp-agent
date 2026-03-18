@@ -178,8 +178,13 @@ public:
              tool_call_callback on_tool_call = nullptr);
 
 
-  // Run the agent loop with an initial prompt
+  // Run the agent loop with an initial prompt (text only)
   agent_loop_result run(const std::string &user_prompt);
+
+  // Run the agent loop with multimodal content (supports text, images, audio)
+  // user_message is a JSON object with role and content fields
+  // content can be a string or array of content parts (OpenAI format)
+  agent_loop_result run_multimodal(const json &user_message);
 
   // Run the agent loop with streaming events via callback
   // This is the API-friendly version that emits events instead of console
@@ -193,6 +198,14 @@ public:
   run_streaming(const std::string &user_prompt, agent_event_callback on_event,
                 std::function<bool()> should_stop = nullptr,
                 permission_manager_async *async_perms = nullptr);
+
+  // Run the agent loop with multimodal content and streaming events
+  // user_message is a JSON object with role and content fields
+  // content can be a string or array of content parts (OpenAI format)
+  agent_loop_result
+  run_streaming_multimodal(const json &user_message, agent_event_callback on_event,
+                           std::function<bool()> should_stop = nullptr,
+                           permission_manager_async *async_perms = nullptr);
 
   // Clear conversation history
   void clear();
