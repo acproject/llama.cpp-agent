@@ -39,8 +39,24 @@
 #include <windows.h>
 #endif
 
+// TTS/ASR support
+#include "../../../third_party/qwen3-tts-cpp/cpp/qwen3_talker.h"
+#include "../../../third_party/qwen3-tts-cpp/cpp/qwen3_audio_decoder.h"
+#include "../../../third_party/qwen3-asr.cpp/src/qwen3_asr.h"
+
 static std::function<void(int)> shutdown_handler;
 static std::atomic_flag is_terminating = ATOMIC_FLAG_INIT;
+
+// ASR/TTS global instances
+static std::unique_ptr<qwen3_asr::Qwen3ASR> g_asr;
+static std::unique_ptr<Qwen3Talker> g_tts_talker;
+static std::unique_ptr<Qwen3AudioDecoder> g_tts_tokenizer;  // Tokenizer model for audio decoding
+static std::string g_asr_model_path;
+static std::string g_tts_model_path;           // TTS Talker model (text -> audio codes)
+static std::string g_tts_tokenizer_model_path; // Tokenizer model (audio codes -> waveform)
+static std::string g_tts_ref_audio_path;
+static bool g_asr_enabled = false;
+static bool g_tts_enabled = false;
 
 static inline void signal_handler(int signal) {
   if (is_terminating.test_and_set()) {
@@ -95,7 +111,7 @@ int main(int argc, char *argv[]) {
     std::string arg = argv[i];
     if (arg == "--subagent") {
       max_subagent_depth = 1;
-      for (int j = i + 1; j < argc; j++) {
+      for (int j = i; j < argc; j++) {
         argv[j] = argv[j + 1];
       }
       argc--;
@@ -119,7 +135,10 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Invalid --max-subagent-depth value: %s\n", argv[i + 1]);
            return 1;
           }
-          for (int j = i + 1; j < argc; j++) {
+          for (int j = i; j < argc - 1; j++) {
+            argv[j] = argv[j + 1];
+          }
+          for (int j = i; j < argc - 1; j++) {
             argv[j] = argv[j + 1];
           }
           argc -= 2;
@@ -128,6 +147,68 @@ int main(int argc, char *argv[]) {
       fprintf(stderr, "--max-subagent-depth requires a value\n");
       return 1;
     }
+    } else if (arg == "--asr-model") {
+      if (i + 1 < argc) {
+        g_asr_model_path = argv[i + 1];
+        g_asr_enabled = true;
+        for (int j = i; j < argc - 1; j++) {
+          argv[j] = argv[j + 1];
+        }
+        for (int j = i; j < argc - 1; j++) {
+          argv[j] = argv[j + 1];
+        }
+        argc -= 2;
+        i--;
+      } else {
+        fprintf(stderr, "--asr-model requires a path\n");
+        return 1;
+      }
+    } else if (arg == "--tts-model") {
+      if (i + 1 < argc) {
+        g_tts_model_path = argv[i + 1];
+        g_tts_enabled = true;
+        for (int j = i; j < argc - 1; j++) {
+          argv[j] = argv[j + 1];
+        }
+        for (int j = i; j < argc - 1; j++) {
+          argv[j] = argv[j + 1];
+        }
+        argc -= 2;
+        i--;
+      } else {
+        fprintf(stderr, "--tts-model requires a path\n");
+        return 1;
+      }
+    } else if (arg == "--tts-tokenizer-model") {
+      if (i + 1 < argc) {
+        g_tts_tokenizer_model_path = argv[i + 1];
+        for (int j = i; j < argc - 1; j++) {
+          argv[j] = argv[j + 1];
+        }
+        for (int j = i; j < argc - 1; j++) {
+          argv[j] = argv[j + 1];
+        }
+        argc -= 2;
+        i--;
+      } else {
+        fprintf(stderr, "--tts-tokenizer-model requires a path\n");
+        return 1;
+      }
+    } else if (arg == "--tts-ref-audio") {
+      if (i + 1 < argc) {
+        g_tts_ref_audio_path = argv[i + 1];
+        for (int j = i; j < argc - 1; j++) {
+          argv[j] = argv[j + 1];
+        }
+        for (int j = i; j < argc - 1; j++) {
+          argv[j] = argv[j + 1];
+        }
+        argc -= 2;
+        i--;
+      } else {
+        fprintf(stderr, "--tts-ref-audio requires a path\n");
+        return 1;
+      }
   }
   }
 
@@ -344,6 +425,77 @@ int main(int argc, char *argv[]) {
     ctx_http.get("/v1/agent/session/:id/stats", ex_wrapper(proxy_agent_get));
   }
 
+  // TTS/ASR endpoints
+  // POST /v1/audio/speech - Generate speech from text
+  ctx_http.post("/v1/audio/speech", ex_wrapper([](const server_http_req & req) -> server_http_res_ptr {
+    if (!g_tts_talker || !g_tts_enabled) {
+      auto res = std::make_unique<server_http_res>();
+      res->status = 503;
+      res->data = json{{"error", "TTS service not available"}}.dump();
+      return res;
+    }
+    
+    try {
+      json body = json::parse(req.body);
+      std::string text = body.value("input", "");
+      std::string voice = body.value("voice", "default");
+      
+      if (text.empty()) {
+        auto res = std::make_unique<server_http_res>();
+        res->status = 400;
+        res->data = json{{"error", "Missing 'input' parameter"}}.dump();
+        return res;
+      }
+      
+      // Generate audio codes from text using Talker model
+      std::vector<int32_t> audio_codes = g_tts_talker->generate(text, g_tts_ref_audio_path);
+      
+      if (g_tts_tokenizer) {
+        // TODO: Decode audio codes to waveform using tokenizer model
+        // For now, return the codes as placeholder
+        auto res = std::make_unique<server_http_res>();
+        res->status = 200;
+        res->data = json{
+          {"success", true},
+          {"codes_count", audio_codes.size()},
+          {"message", "TTS generation complete (audio decoding pending)"}
+        }.dump();
+        return res;
+      } else {
+        // No tokenizer, return codes directly
+        auto res = std::make_unique<server_http_res>();
+        res->status = 200;
+        res->data = json{
+          {"success", true},
+          {"codes", audio_codes},
+          {"note", "Tokenizer model not loaded, returning raw codes"}
+        }.dump();
+        return res;
+      }
+    } catch (const std::exception & e) {
+      auto res = std::make_unique<server_http_res>();
+      res->status = 500;
+      res->data = json{{"error", e.what()}}.dump();
+      return res;
+    }
+  }));
+
+  // POST /v1/audio/transcriptions - Transcribe audio to text
+  ctx_http.post("/v1/audio/transcriptions", ex_wrapper([](const server_http_req & req) -> server_http_res_ptr {
+    if (!g_asr || !g_asr_enabled) {
+      auto res = std::make_unique<server_http_res>();
+      res->status = 503;
+      res->data = json{{"error", "ASR service not available"}}.dump();
+      return res;
+    }
+    
+    // TODO: Implement ASR transcription
+    auto res = std::make_unique<server_http_res>();
+    res->status = 200;
+    res->data = json{{"text", "ASR transcription not yet implemented"}}.dump();
+    return res;
+  }));
+
   // Setup cleanup
   auto clean_up = [&ctx_http, &ctx_server, &models_routes, is_router_server]() {
     LOG_INF("Cleaning up before exit...\n");
@@ -374,6 +526,45 @@ int main(int argc, char *argv[]) {
 
   if (is_router_server) {
     ctx_http.is_ready.store(true);
+    
+    // Initialize ASR/TTS even in router mode (standalone audio service)
+    // Initialize ASR (Automatic Speech Recognition)
+    if (g_asr_enabled && !g_asr_model_path.empty()) {
+      LOG_INF("Loading ASR model from: %s\n", g_asr_model_path.c_str());
+      g_asr = std::make_unique<qwen3_asr::Qwen3ASR>();
+      if (g_asr->load_model(g_asr_model_path)) {
+        LOG_INF("ASR model loaded successfully\n");
+      } else {
+        LOG_ERR("Failed to load ASR model: %s\n", g_asr->get_error().c_str());
+        g_asr.reset();
+        g_asr_enabled = false;
+      }
+    }
+
+    // Initialize TTS (Text-to-Speech)
+    if (g_tts_enabled && !g_tts_model_path.empty()) {
+      LOG_INF("Loading TTS Talker model from: %s\n", g_tts_model_path.c_str());
+      g_tts_talker = std::make_unique<Qwen3Talker>(Qwen3TalkerConfig{});
+      
+      bool tts_loaded = g_tts_talker->load_weights(g_tts_model_path);
+      
+      bool tokenizer_loaded = true;
+      if (!g_tts_tokenizer_model_path.empty()) {
+        LOG_INF("Loading TTS Tokenizer model from: %s\n", g_tts_tokenizer_model_path.c_str());
+        g_tts_tokenizer = std::make_unique<Qwen3AudioDecoder>(Qwen3AudioDecoderConfig{});
+        tokenizer_loaded = g_tts_tokenizer->load_weights(g_tts_tokenizer_model_path);
+      }
+      
+      if (tts_loaded && tokenizer_loaded) {
+        LOG_INF("TTS models loaded successfully\n");
+      } else {
+        LOG_ERR("Failed to load TTS model(s)\n");
+        g_tts_talker.reset();
+        g_tts_tokenizer.reset();
+        g_tts_enabled = false;
+      }
+    }
+    
     LOG_INF("\n");
     LOG_INF("==============================================\n");
     LOG_INF("llama-agent-server (router) is listening on %s\n",
@@ -385,6 +576,16 @@ int main(int argc, char *argv[]) {
     LOG_INF("  POST /models/load                   - Load a model\n");
     LOG_INF("  POST /models/unload                 - Unload a model\n");
     LOG_INF("  GET  /health                        - Health check\n");
+    
+    if (g_asr_enabled) {
+      LOG_INF("\nAudio Endpoints (ASR enabled):\n");
+      LOG_INF("  POST /v1/audio/transcriptions      - Transcribe audio to text\n");
+    }
+    
+    if (g_tts_enabled) {
+      LOG_INF("\nAudio Endpoints (TTS enabled):\n");
+      LOG_INF("  POST /v1/audio/speech              - Generate speech from text\n");
+    }
     LOG_INF("\n");
     LOG_INF("Agent router requires model selection:\n");
     LOG_INF("  GET endpoints:  ?model=MODEL_ID\n");
@@ -412,6 +613,47 @@ int main(int argc, char *argv[]) {
   server_api.update_meta(ctx_server);
   ctx_http.is_ready.store(true);
   LOG_INF("Modle loaded successfully\n");
+
+  // Initialize ASR (Automatic Speech Recognition)
+  if (g_asr_enabled && !g_asr_model_path.empty()) {
+    LOG_INF("Loading ASR model from: %s\n", g_asr_model_path.c_str());
+    g_asr = std::make_unique<qwen3_asr::Qwen3ASR>();
+    if (g_asr->load_model(g_asr_model_path)) {
+      LOG_INF("ASR model loaded successfully\n");
+    } else {
+      LOG_ERR("Failed to load ASR model: %s\n", g_asr->get_error().c_str());
+      g_asr.reset();
+      g_asr_enabled = false;
+    }
+  }
+
+  // Initialize TTS (Text-to-Speech)
+  // TTS requires two models:
+  //   1. Talker model (text -> audio codes)
+  //   2. Tokenizer model (audio codes -> waveform)
+  if (g_tts_enabled && !g_tts_model_path.empty()) {
+    LOG_INF("Loading TTS Talker model from: %s\n", g_tts_model_path.c_str());
+    g_tts_talker = std::make_unique<Qwen3Talker>(Qwen3TalkerConfig{});
+    
+    bool tts_loaded = g_tts_talker->load_weights(g_tts_model_path);
+    
+    // Load tokenizer model if provided (for audio decoding)
+    bool tokenizer_loaded = true;
+    if (!g_tts_tokenizer_model_path.empty()) {
+      LOG_INF("Loading TTS Tokenizer model from: %s\n", g_tts_tokenizer_model_path.c_str());
+      g_tts_tokenizer = std::make_unique<Qwen3AudioDecoder>(Qwen3AudioDecoderConfig{});
+      tokenizer_loaded = g_tts_tokenizer->load_weights(g_tts_tokenizer_model_path);
+    }
+    
+    if (tts_loaded && tokenizer_loaded) {
+      LOG_INF("TTS models loaded successfully\n");
+    } else {
+      LOG_ERR("Failed to load TTS model(s)\n");
+      g_tts_talker.reset();
+      g_tts_tokenizer.reset();
+      g_tts_enabled = false;
+    }
+  }
 
   const char * router_port = std::getenv("LLAMA_SERVER_ROUTER_PORT");
   std::thread monitor_thread;
@@ -460,6 +702,16 @@ int main(int argc, char *argv[]) {
   LOG_INF("  GET  /v1/agent/session/:id/messages - Get Conversation history\n");
   LOG_INF("  GET  /v1/agent/tools                - List available tools\n");
   LOG_INF("  GET  /health                        - Health check\n");
+  
+  if (g_asr_enabled) {
+    LOG_INF("\nAudio Endpoints (ASR enabled):\n");
+    LOG_INF("  POST /v1/audio/transcriptions      - Transcribe audio to text\n");
+  }
+  
+  if (g_tts_enabled) {
+    LOG_INF("\nAudio Endpoints (TTS enabled):\n");
+    LOG_INF("  POST /v1/audio/speech              - Generate speech from text\n");
+  };
 
   // Start the main inference loop
   ctx_server.start_loop();

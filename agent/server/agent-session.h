@@ -87,7 +87,9 @@ public:
   // Multimodal version - accepts JSON message with images/audio
   // user_message is a JSON object with role and content fields
   // content can be a string or array of content parts (OpenAI format)
-  void send_message_multimodal(const json &user_message, agent_event_callback on_event);
+  // media_files is a vector of raw media data (images/audio) decoded from base64
+  void send_message_multimodal(const json &user_message, agent_event_callback on_event,
+                               std::vector<raw_buffer> media_files = {});
 
   // Check if the current operation is complete
   bool is_completed() const { return !is_running_.load(); }

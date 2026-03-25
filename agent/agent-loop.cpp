@@ -352,7 +352,8 @@ common_chat_msg agent_loop::generate_completion(result_timings &out_timings) {
 
     task.cli = true;
     task.cli_prompt = std::move(chat_params.prompt);
-
+    task.cli_files = media_files_; // Pass media files for multimodal support
+    
     task.params.chat_parser_params = common_chat_parser_params(chat_params);
     task.params.chat_parser_params.reasoning_format =
         COMMON_REASONING_FORMAT_DEEPSEEK;
@@ -1008,10 +1009,21 @@ agent_loop_result agent_loop::run_streaming(
 // Multimodal streaming version - accepts JSON message with images/audio
 agent_loop_result agent_loop::run_streaming_multimodal(
     const json &user_message, agent_event_callback on_event,
-    std::function<bool()> should_stop, permission_manager_async *async_perms) {
+    std::function<bool()> should_stop, permission_manager_async *async_perms,
+    std::vector<raw_buffer> media_files) {
 
   agent_loop_result result;
   result.iterations = 0;
+
+  // Store media files for use in generate_completion
+  // These will be consumed on first generation
+  media_files_ = std::move(media_files);
+  
+  // Scope guard to clear media files on function exit
+  struct MediaGuard {
+    std::vector<raw_buffer>& files;
+    ~MediaGuard() { files.clear(); }
+  } media_guard{media_files_};
 
   // Default should_stop to check is_interrupted_
   if (!should_stop) {
@@ -1152,7 +1164,8 @@ agent_loop::generate_completion_streaming(result_timings &out_timings,
 
     task.cli = true;
     task.cli_prompt = std::move(chat_params.prompt);
-
+    task.cli_files = media_files_; // Pass media files for multimodal support
+    
     task.params.chat_parser_params = common_chat_parser_params(chat_params);
     task.params.chat_parser_params.reasoning_format =
         COMMON_REASONING_FORMAT_DEEPSEEK;

@@ -61,6 +61,24 @@ if(NOT AGENT_MISSING_SOURCES)
 endif()
 
 if(LLAMA_HTTPLIB)
+    # ASR/TTS source files
+    set(QWEN3_ASR_SOURCES
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-asr.cpp/src/qwen3_asr.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-asr.cpp/src/audio_encoder.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-asr.cpp/src/text_decoder.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-asr.cpp/src/mel_spectrogram.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-asr.cpp/src/audio_injection.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-asr.cpp/src/gguf_loader.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-asr.cpp/src/forced_aligner.cpp
+    )
+    
+    set(QWEN3_TTS_SOURCES
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp/qwen3_talker.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp/qwen3_talker_llm.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp/qwen3_audio_decoder.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp/qwen3_common.cpp
+    )
+    
     set(AGENT_SERVER_REQUIRED_SOURCES
         server/agent-server.cpp
         server/agent-session.cpp
@@ -97,6 +115,9 @@ if(LLAMA_HTTPLIB)
             mcp/mcp-tool-wrapper.cpp
         )
     endif()
+    
+    # Add ASR/TTS sources
+    list(APPEND AGENT_SERVER_REQUIRED_SOURCES ${QWEN3_ASR_SOURCES} ${QWEN3_TTS_SOURCES})
 
     set(AGENT_SERVER_MISSING_SOURCES "")
     foreach(src IN LISTS AGENT_SERVER_REQUIRED_SOURCES)
@@ -114,6 +135,9 @@ if(LLAMA_HTTPLIB)
         target_include_directories(${AGENT_SERVER_TARGET} PRIVATE ${CMAKE_SOURCE_DIR})
         target_include_directories(${AGENT_SERVER_TARGET} PRIVATE ${LLAMA_CPP_BINARY_DIR}/tools/server)
         target_include_directories(${AGENT_SERVER_TARGET} PRIVATE ${LLAMA_CPP_SOURCE_DIR}/tools/mtmd)
+        # ASR/TTS include paths
+        target_include_directories(${AGENT_SERVER_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/third_party/qwen3-asr.cpp/src)
+        target_include_directories(${AGENT_SERVER_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp)
         add_dependencies(${AGENT_SERVER_TARGET} llama-server)
         if(WIN32)
             target_link_libraries(${AGENT_SERVER_TARGET} PRIVATE ws2_32)

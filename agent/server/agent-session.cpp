@@ -157,7 +157,8 @@ void agent_session::send_message(const std::string &content,
 
 // Multimodal version of send_message - accepts JSON message with images/audio
 void agent_session::send_message_multimodal(const json &user_message,
-                                             agent_event_callback on_event) {
+                                             agent_event_callback on_event,
+                                             std::vector<raw_buffer> media_files) {
   // Wait for any previous operation to complete
   if (worker_thread_.joinable()) {
     worker_thread_.join();
@@ -192,12 +193,12 @@ void agent_session::send_message_multimodal(const json &user_message,
         server_ctx_, params_, agent_cfg, is_interrupted_);
   }
   // Run in background thread with multimodal content
-  worker_thread_ = std::thread([this, user_message, on_event]() {
+  worker_thread_ = std::thread([this, user_message, on_event, media_files = std::move(media_files)]() mutable {
     auto should_stop = [this]() { return is_interrupted_.load(); };
 
     // Use multimodal streaming method
     agent_loop_result result =
-        loop_->run_streaming_multimodal(user_message, on_event, should_stop, &permissions_);
+        loop_->run_streaming_multimodal(user_message, on_event, should_stop, &permissions_, std::move(media_files));
     {
         std::lock_guard<std::mutex> lock(result_mutex_);
         last_result_ = result;

@@ -6,6 +6,7 @@
 #include "permission.h"
 #include "permission-async.h"
 #include "chat.h"
+#include "mtmd.h"
 
 #include "server-context.h"
 #include "server-task.h"
@@ -202,10 +203,12 @@ public:
   // Run the agent loop with multimodal content and streaming events
   // user_message is a JSON object with role and content fields
   // content can be a string or array of content parts (OpenAI format)
+  // media_files is a vector of raw media data (images/audio) decoded from base64
   agent_loop_result
   run_streaming_multimodal(const json &user_message, agent_event_callback on_event,
                            std::function<bool()> should_stop = nullptr,
-                           permission_manager_async *async_perms = nullptr);
+                           permission_manager_async *async_perms = nullptr,
+                           std::vector<raw_buffer> media_files = {});
 
   // Clear conversation history
   void clear();
@@ -261,6 +264,9 @@ private:
       bash_patterns_; // Allowed bash command prefixes(for read-only subagents)
   tool_call_callback on_tool_call_; // Optional callback for tool reporting
   bool is_subagent_ = false;        // True if this is a subagent
+
+  // Multimodal support
+  std::vector<raw_buffer> media_files_; // Media files (images/audio) for current request
 
   // Common initialization logic
   void init_common(const common_params &params);
