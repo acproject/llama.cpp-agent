@@ -77,6 +77,7 @@ if(LLAMA_HTTPLIB)
         ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp/qwen3_talker_llm.cpp
         ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp/qwen3_audio_decoder.cpp
         ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp/qwen3_common.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/qwen3-tts-cpp/cpp/embedding_client.cpp
     )
     
     set(AGENT_SERVER_REQUIRED_SOURCES
@@ -129,7 +130,13 @@ if(LLAMA_HTTPLIB)
     if(NOT AGENT_SERVER_MISSING_SOURCES)
         set(AGENT_SERVER_TARGET llama-agent-server)
         add_executable(${AGENT_SERVER_TARGET} ${AGENT_SERVER_REQUIRED_SOURCES})
-        target_link_libraries(${AGENT_SERVER_TARGET} PRIVATE server-context common cpp-httplib ${CMAKE_THREAD_LIBS_INIT})
+        # Find curl for embedding client
+        find_package(CURL QUIET)
+        if(CURL_FOUND)
+            target_link_libraries(${AGENT_SERVER_TARGET} PRIVATE server-context common cpp-httplib ${CMAKE_THREAD_LIBS_INIT} CURL::libcurl)
+        else()
+            target_link_libraries(${AGENT_SERVER_TARGET} PRIVATE server-context common cpp-httplib ${CMAKE_THREAD_LIBS_INIT} curl)
+        endif()
         target_compile_features(${AGENT_SERVER_TARGET} PRIVATE cxx_std_17)
         target_include_directories(${AGENT_SERVER_TARGET} PRIVATE ${LLAMA_CPP_SOURCE_DIR}/tools/server)
         target_include_directories(${AGENT_SERVER_TARGET} PRIVATE ${CMAKE_SOURCE_DIR})
