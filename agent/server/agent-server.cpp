@@ -271,7 +271,7 @@ int main(int argc, char *argv[]) {
 
     server_api.get_metrics                 = models_routes->proxy_get;
     server_api.post_props                  = models_routes->proxy_post;
-    server_api.get_api_show                = models_routes->proxy_get;
+    // server_api.get_api_show                = models_routes->proxy_get;
     server_api.post_completions            = models_routes->proxy_post;
     server_api.post_completions_oai        = models_routes->proxy_post;
     server_api.post_chat_completions       = models_routes->proxy_post;
@@ -305,7 +305,7 @@ int main(int argc, char *argv[]) {
   ctx_http.get("/metrics",             ex_wrapper(server_api.get_metrics));
   ctx_http.get("/props",               ex_wrapper(server_api.get_props));
   ctx_http.post("/props",              ex_wrapper(server_api.post_props));
-  ctx_http.post("/api/show",           ex_wrapper(server_api.get_api_show));
+  // ctx_http.post("/api/show",           ex_wrapper(server_api.get_api_show));
   ctx_http.get("/models",              ex_wrapper(server_api.get_models));
   ctx_http.get("/v1/models",           ex_wrapper(server_api.get_models));
   ctx_http.get("/api/tags",            ex_wrapper(server_api.get_models));

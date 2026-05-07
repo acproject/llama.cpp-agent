@@ -2,6 +2,7 @@
 #include "common.h"
 #include "arg.h"
 #include "console.h"
+#include "llama.h"
 
 #include "agent-loop.h"
 #include "tool-registry.h"
@@ -578,7 +579,7 @@ int main(int argc, char ** argv) {
     inference_thread.join();
 
     common_log_set_verbosity_thold(LOG_LEVEL_INFO);
-    llama_memory_breakdown_print(ctx_server.get_llama_context());
+    // llama_memory_breakdown_print(ctx_server.get_llama_context());
 
     return 0;
 }
