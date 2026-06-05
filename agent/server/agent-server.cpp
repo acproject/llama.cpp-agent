@@ -658,7 +658,7 @@ int main(int argc, char *argv[]) {
   const char * router_port = std::getenv("LLAMA_SERVER_ROUTER_PORT");
   std::thread monitor_thread;
   if (router_port != nullptr) {
-    monitor_thread = server_models::setup_child_server(shutdown_handler);
+//    monitor_thread = server_models::setup_child_server(shutdown_handler);
   }
 
   // Initialize MCP servers (Unix only)
